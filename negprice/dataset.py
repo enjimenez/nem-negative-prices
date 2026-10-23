@@ -1,29 +1,100 @@
-from pathlib import Path
+"""Pull AEMO dispatch data with NEMOSIS and save one clean parquet per table.
+
+Output: data/interim/dispatchprice.parquet and data/interim/dispatchregionsum.parquet
+- Regions in config.REGIONS only
+- 5-minute intervals, SETTLEMENTDATE = END of the interval
+- NEM time (UTC+10 all year, no daylight saving), stored without a timezone
+"""
 
 from loguru import logger
-from tqdm import tqdm
+from nemosis import dynamic_data_compiler
+from nemosis.custom_errors import NoDataToReturn
+import pandas as pd
 import typer
 
-from negprice.config import PROCESSED_DATA_DIR, RAW_DATA_DIR
+from negprice.config import END, INTERIM_DATA_DIR, NEMOSIS_CACHE, REGIONS, START
 
 app = typer.Typer()
 
+NEMOSIS_TIME_FORMAT = "%Y/%m/%d %H:%M:%S"
+
+# Columns to keep from each table
+TABLES = {
+    "DISPATCHPRICE": ["SETTLEMENTDATE", "REGIONID", "INTERVENTION", "RRP"],
+    "DISPATCHREGIONSUM": [
+        "SETTLEMENTDATE",
+        "REGIONID",
+        "INTERVENTION",
+        "TOTALDEMAND",
+        "DEMAND_AND_NONSCHEDGEN",
+        "TOTALINTERMITTENTGENERATION",
+        "UIGF",
+        "AVAILABLEGENERATION",
+        "NETINTERCHANGE",
+    ],
+}
+
+
+def pull_table(table: str, columns: list[str]) -> pd.DataFrame:
+    """Download one table month by month and return SA/VIC/NSW rows."""
+    month_edges = pd.date_range(START, END, freq="MS")
+    frames, failed = [], []
+
+    for month_start, month_end in zip(month_edges[:-1], month_edges[1:]):
+        logger.info(f"{table}: {month_start:%Y-%m}")
+        try:
+            df = dynamic_data_compiler(
+                month_start.strftime(NEMOSIS_TIME_FORMAT),
+                month_end.strftime(NEMOSIS_TIME_FORMAT),
+                table,
+                str(NEMOSIS_CACHE),
+                select_columns=columns,
+                filter_cols=["REGIONID"],
+                filter_values=(REGIONS,),
+                fformat="parquet",
+                keep_csv=False,
+            )
+            frames.append(df)
+        except NoDataToReturn:
+            failed.append(f"{month_start:%Y-%m}")
+
+    if failed:
+        raise RuntimeError(f"{table}: no data for {failed}. Rerun, or move END back.")
+
+    df = pd.concat(frames, ignore_index=True)
+
+    # Keep the pricing run only (INTERVENTION = 0)
+    df = df[pd.to_numeric(df["INTERVENTION"]) == 0].drop(columns="INTERVENTION")
+    return df.sort_values(["REGIONID", "SETTLEMENTDATE"]).reset_index(drop=True)
+
+
+def check(df: pd.DataFrame, table: str) -> None:
+    """Fail on duplicates; report missing 5-minute intervals per region."""
+    n_dupes = df.duplicated(["SETTLEMENTDATE", "REGIONID"]).sum()
+    if n_dupes:
+        raise ValueError(f"{table}: {n_dupes} duplicate (SETTLEMENTDATE, REGIONID) rows")
+
+    expected = pd.date_range(
+        pd.Timestamp(START) + pd.Timedelta("5min"), pd.Timestamp(END), freq="5min"
+    )
+    for region, g in df.groupby("REGIONID"):
+        missing = expected.difference(g["SETTLEMENTDATE"])
+        msg = f"{table} {region}: {len(g):,} rows, {len(missing):,} missing intervals"
+        if len(missing):
+            logger.warning(f"{msg} (first: {missing[0]})")
+        else:
+            logger.success(msg)
+
 
 @app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = RAW_DATA_DIR / "dataset.csv",
-    output_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    # ----------------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Processing dataset...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Processing dataset complete.")
-    # -----------------------------------------
-
+def main():
+    INTERIM_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    for table, columns in TABLES.items():
+        df = pull_table(table, columns)
+        check(df, table)
+        out_path = INTERIM_DATA_DIR / f"{table.lower()}.parquet"
+        df.to_parquet(out_path, index=False)
+        logger.success(f"Saved {out_path}")
 
 if __name__ == "__main__":
     app()
