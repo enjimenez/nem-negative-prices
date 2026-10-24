@@ -28,6 +28,7 @@ dependencies = [
     "pyarrow>=26.0.0",
     "pytest",
     "python-dotenv",
+    "requests>=2.34.2",
     "ruff",
     "scikit-learn",
     "tqdm",

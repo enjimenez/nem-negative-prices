@@ -6,6 +6,8 @@ Output: data/interim/dispatchprice.parquet and data/interim/dispatchregionsum.pa
 - NEM time (UTC+10 all year, no daylight saving), stored without a timezone
 """
 
+from itertools import pairwise
+
 from loguru import logger
 from nemosis import dynamic_data_compiler
 from nemosis.custom_errors import NoDataToReturn
@@ -40,7 +42,7 @@ def pull_table(table: str, columns: list[str]) -> pd.DataFrame:
     month_edges = pd.date_range(START, END, freq="MS")
     frames, failed = [], []
 
-    for month_start, month_end in zip(month_edges[:-1], month_edges[1:]):
+    for month_start, month_end in pairwise(month_edges):
         logger.info(f"{table}: {month_start:%Y-%m}")
         try:
             df = dynamic_data_compiler(
@@ -95,6 +97,7 @@ def main():
         out_path = INTERIM_DATA_DIR / f"{table.lower()}.parquet"
         df.to_parquet(out_path, index=False)
         logger.success(f"Saved {out_path}")
+
 
 if __name__ == "__main__":
     app()

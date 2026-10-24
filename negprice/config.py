@@ -30,7 +30,7 @@ try:
     logger.add(lambda msg: tqdm.write(msg, end=""), colorize=True)
 except ModuleNotFoundError:
     pass
-     
+
 # NEM settings
 REGIONS = ["SA1", "VIC1", "NSW1"]
 START = "2021/10/01 00:00:00"
