@@ -69,6 +69,7 @@ data: requirements
 	$(PYTHON_INTERPRETER) negprice/predispatch.py
 	$(PYTHON_INTERPRETER) negprice/rooftop_pv.py
 	$(PYTHON_INTERPRETER) negprice/weather.py
+	$(PYTHON_INTERPRETER) negprice/processing.py
 
 
 #################################################################################

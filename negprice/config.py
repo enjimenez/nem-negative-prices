@@ -37,3 +37,7 @@ START = "2021/10/01 00:00:00"
 END = "2026/10/01 00:00:00"
 NEMOSIS_CACHE = RAW_DATA_DIR / "nemosis_cache"
 NEMOSIS_CACHE.mkdir(parents=True, exist_ok=True)
+
+# Administered pricing (June 2022 energy crisis: price cap, then market suspension).
+# Whole days D, inclusive. Kept for training, excluded from scoring and battery value.
+ADMIN_PRICE_DAYS = ("2022-06-13", "2022-06-24")

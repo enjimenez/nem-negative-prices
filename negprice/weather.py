@@ -8,9 +8,9 @@ PV is. AEMO's own forecasts already cover the whole region, so this is a light e
 Needs SILO_EMAIL=<your email> in .env (SILO asks for an email instead of an API key).
 
 Output: data/interim/silo_weather.parquet, one row per (DATE, REGIONID)
-Leakage (decision B): at 13:00 on D-1 the main model may only use DATE <= D-2.
+Leakage: at 13:00 on D-1 the main model may only use DATE <= D-2.
 Caveat: SILO revises recent days as late station reports arrive, so today's download can
-differ slightly from what was available at the time. Small effect; note it in the README.
+differ slightly from what was available at the time. Small effect.
 """
 
 from io import StringIO

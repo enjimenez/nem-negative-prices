@@ -5,7 +5,8 @@
 """Time-boxed check: can we get AEMO's 13:00 predispatch run for day D?
 
 Result (24 Oct 2026): works up to Jul 2024, fails from Aug 2024 (AEMO renamed its files).
-Superseded by negprice/predispatch.py; kept as the evidence for decision C.
+Superseded by negprice/predispatch.py, which reads AEMO's archive directly; kept as the
+record of why NEMSEER isn't used.
 
 Runs in its own Python 3.11 environment (NEMSEER doesn't support 3.12):
     uv run scripts/predispatch_check.py 2021-10-15

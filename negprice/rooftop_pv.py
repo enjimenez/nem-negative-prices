@@ -8,14 +8,14 @@ of half-hours; for target day D we keep only the latest version produced by 12:3
 Output:
 - data/interim/rooftop_pv_actual.parquet: one row per (half-hour, region, TYPE)
 - data/interim/rooftop_pv_forecast.parquet: one row per (half-hour of day D, region),
-  with VERSION_DATETIME = when that forecast was produced (its "known at" time for Day 5)
+  with VERSION_DATETIME = when that forecast was produced (its "known at" time)
 - Times are the END of the half-hour, NEM time (UTC+10, no daylight saving), no timezone
 
 TYPE in the actuals (AEMO MMS data model):
 - MEASUREMENT: best estimate, published on the day, about 30 min after the interval
 - SATELLITE: estimate from satellite imagery, about 30 min after the interval
 - DAILY: best estimate, published the day after
-Leakage rule for Day 5: at 13:00 on D-1, DAILY values are known only up to D-2.
+Leakage rule: at 13:00 on D-1, DAILY values are known only up to D-2.
 """
 
 from itertools import pairwise
@@ -60,7 +60,7 @@ FORECAST_COLUMNS = [
 TIME_COLUMNS = ["VERSION_DATETIME", "INTERVAL_DATETIME", "LASTCHANGED"]
 
 # Latest forecast allowed for target day D: produced by 12:30 on D-1.
-# The issue time is 13:00 (decision A). The 30-minute margin covers the delay between
+# The forecast issue time is 13:00 on D-1. The 30-minute margin covers the delay between
 # AEMO producing a forecast and publishing it; the run logs that delay so you can check it.
 CUTOFF = pd.Timedelta(hours=12, minutes=30)
 
