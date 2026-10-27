@@ -16,6 +16,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License"
 ]
 dependencies = [
+    "holidays>=0.107",
     "ipython",
     "jupyterlab",
     "loguru",
