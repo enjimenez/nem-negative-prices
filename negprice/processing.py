@@ -112,6 +112,11 @@ def add_admin_price_flag(panel: pd.DataFrame) -> pd.DataFrame:
     return panel.assign(admin_price=panel["DAY"].between(first, last))
 
 
+def add_target(panel: pd.DataFrame) -> pd.DataFrame:
+    """Prediction target: 1 if the half-hour mean price is strictly below $0, else 0."""
+    return panel.assign(is_neg=(panel["rrp_mean"] < 0).astype("int8"))
+
+
 def main() -> None:
     def read(name: str) -> pd.DataFrame:
         return pd.read_parquet(INTERIM_DATA_DIR / f"{name}.parquet")
@@ -126,12 +131,11 @@ def main() -> None:
         read("rooftop_pv_forecast"),
         read("silo_weather"),
     )
-    panel = add_admin_price_flag(panel).sort_values(KEYS).reset_index(drop=True)
+    panel = add_target(add_admin_price_flag(panel)).sort_values(KEYS).reset_index(drop=True)
 
     out = PROCESSED_DATA_DIR / "panel.parquet"
     panel.to_parquet(out, index=False)
     print(f"saved {out.name}: {panel.shape[0]:,} rows × {panel.shape[1]} columns")
-
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,6 @@
 # Data dictionary: half-hourly panel
 
-*Output of `negprice.processing.build_panel` + `add_admin_price_flag`. One row per region and half-hour. 262,944 rows = 3 regions × 1,826 days × 48 half-hours (1 Oct 2021 – 30 Sep 2026). Last updated 26 Oct 2026.*
+*Output of `negprice.processing.build_panel` + `add_admin_price_flag` + `add_target`. One row per region and half-hour. 262,944 rows = 3 regions × 1,826 days × 48 half-hours (1 Oct 2021 – 30 Sep 2026). Last updated 27 Oct 2026.*
 
 ## Conventions
 
@@ -44,12 +44,20 @@ Six 5-minute values per half-hour (the intervals ending HH:05 … HH:30 belong t
 
 | Column | Type | Description | Role |
 |---|---|---|---|
-| `rrp_mean` | float, $/MWh | Mean of the six 5-min regional reference prices (RRP). `rrp_mean < 0` is **target definition A** (half-hour average negative). Also used for the battery dollar figure | Target; lagged input |
-| `rrp_min` | float, $/MWh | Minimum of the six 5-min RRPs. `rrp_min < 0` ⇔ at least one 5-min interval negative: **target definition B** | Target (alt.); lagged input |
-| `n_neg_5min` | int, 0–6 | Number of 5-min intervals with RRP < 0. Duration view of the target | Target (alt.); lagged input |
+| `rrp_mean` | float, $/MWh | Mean of the six 5-min regional reference prices (RRP). Defines the target (`is_neg`). Also used for the battery dollar figure | Defines target; lagged input |
+| `rrp_min` | float, $/MWh | Minimum of the six 5-min RRPs. `rrp_min < 0` ⇔ at least one 5-min interval negative. Not the target (see `is_neg`); kept for analysis | Lagged input |
+| `n_neg_5min` | int, 0–6 | Number of 5-min intervals with RRP < 0. Duration view of negative prices within the half-hour; kept for analysis | Lagged input |
 | `n_5min` | int | Number of 5-min intervals in the half-hour. Always 6 (checked) | QC |
 
 Range: floor −$1,000; the maximum each financial year equals that year's market price cap (up to $20,300 in FY2026). About 0.5–0.7% of 5-min prices are exactly $0, so "< 0" vs "≤ 0" moves base rates by under 1 point.
+
+## Target
+
+| Column | Type | Description | Role |
+|---|---|---|---|
+| `is_neg` | int8, 0/1 | 1 if `rrp_mean` < 0 (half-hour mean of the six 5-min RRPs strictly below $0), else 0. A $0 half-hour counts as not negative. Defined on every row, including `admin_price` days, which are excluded at scoring. Share of 1s over the full window: SA 25.2%, VIC 21.3%, NSW 6.7% | Target |
+
+Why the half-hour mean and not "any 5-min interval negative": AEMO's day-ahead forecast is half-hourly, so the benchmark compares like with like; a battery charging through the half-hour is paid the mean price; and single 5-min dips are mostly real-time volatility that can't be forecast a day ahead.
 
 ## Actual region summary (`DISPATCHREGIONSUM`)
 

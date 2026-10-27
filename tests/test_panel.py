@@ -75,3 +75,12 @@ def test_data_dictionary_matches_panel_columns(panel):
     names = re.findall(r"^\| `(\w+)` \|", text, flags=re.MULTILINE)
     documented = {n for n in names if not n.endswith("_")}  # skip prefix rows (`pd_`, ...)
     assert documented == set(panel.columns)
+
+def test_target_definition(panel):
+    # Defined on every row, 0/1 only
+    assert panel["is_neg"].notna().all()
+    assert set(panel["is_neg"].unique()) <= {0, 1}
+    # Matches the stated definition (guards against a silent switch to <= 0)
+    assert (panel["is_neg"] == (panel["rrp_mean"] < 0)).all()
+    # A negative half-hour mean needs at least one negative 5-min interval
+    assert (panel.loc[panel["is_neg"] == 1, "n_neg_5min"] >= 1).all()
