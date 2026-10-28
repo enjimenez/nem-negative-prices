@@ -71,7 +71,7 @@ def test_admin_price_flag_covers_whole_days(panel):
 
 def test_data_dictionary_matches_panel_columns(panel):
     """Every column is documented, and every documented column exists."""
-    text = DICTIONARY.read_text()
+    text = DICTIONARY.read_text().split("## Feature table")[0]  # panel section only
     names = re.findall(r"^\| `(\w+)` \|", text, flags=re.MULTILINE)
     documented = {n for n in names if not n.endswith("_")}  # skip prefix rows (`pd_`, ...)
     assert documented == set(panel.columns)

@@ -138,3 +138,34 @@ Observed daily weather from SILO DataDrill (gridded) at Adelaide (SA1), Melbourn
 | 13–24 Jun 2022 | Actual and forecast prices administered | `admin_price` flag |
 | 15–17 Dec 2024 | `pvf_` from an old version (AEMO outage) | Kept: predispatch price and demand errors on those days were within the normal range |
 | 34 half-hours | `pv_actual_mw` missing | Left missing |
+
+## Feature table (`data/processed/features.parquet`)
+
+One row per region × half-hour of day D. Forecast issue time: 13:00 NEM time on D-1
+(`issue_time`). Every feature is known by `issue_time`; each non-calendar feature has a
+known-at column. Labels: `is_neg`, `admin_price` (as in the panel). The AEMO forecast
+columns `pd_*` and `pd_known_at` are copied from the panel.
+
+| Column | Description | Known at |
+|---|---|---|
+| `nem_hour` | Interval-end hour in NEM time, 0.5 … 24.0 | Calendar |
+| `local_hour` | Interval-end hour in the region's local clock time (Adelaide, Melbourne, Sydney; shifts with daylight saving), 0.5 … 24.0 | Calendar |
+| `day_of_week` | Day of week of `DAY`, 0 = Monday | Calendar |
+| `is_weekend` | 1 if `DAY` is Saturday or Sunday | Calendar |
+| `is_holiday` | 1 if `DAY` is a public holiday in the region's state (`holidays` package) | Calendar |
+| `month` | Month of `DAY`, 1–12 | Calendar |
+| `pd_rrp_sa1`, `pd_rrp_vic1`, `pd_rrp_nsw1` | AEMO 13:00-run forecast price of that region for the same half-hour. NaN on the region's own rows (use `pd_rrp`) | `pd_nb_known_at` |
+| `pvf_mw` | AEMO rooftop PV forecast, mean (`pvf_powermean`), latest version ≤ 12:30 on D-1 | `pvf_known_at` |
+| `pvf_age_h` | Hours between the PV forecast version and `issue_time` | `pvf_known_at` |
+| `neg_share_4w` | Share of negative half-hours (`is_neg`) at the same half-hour over D-29 … D-2, `admin_price` days excluded. NaN for the first 29 days of data | `neg_share_4w_known_at` (D-1 00:00) |
+| `n_neg_d1_morning` | Number of negative half-hours on D-1 ending at or before 13:00 (26 half-hours). NaN if D-1 is an `admin_price` day or before the data start | `n_neg_d1_morning_known_at` (D-1 13:00) |
+| `price_d2` | Actual half-hour price (`rrp_mean`) at the same half-hour on D-2, $/MWh. NaN if D-2 is an `admin_price` day or before the data start | `price_d2_known_at` |
+| `silo_rain_d2` | SILO observed rainfall on D-2, mm | `silo_d2_known_at` |
+| `silo_max_temp_d2` | SILO observed maximum temperature on D-2, °C | `silo_d2_known_at` |
+| `silo_radiation_d2` | SILO observed solar radiation on D-2, MJ/m² | `silo_d2_known_at` |
+
+### What-if weather (`data/processed/features_whatif.parquet`)
+
+One row per region × day: `silo_rain_d`, `silo_max_temp_d`, `silo_radiation_d` = SILO
+observed weather on day D itself. **Not available at issue time.** Used only for the
+perfect-weather scenario, never in the main model.
