@@ -73,6 +73,11 @@ data: requirements
 	$(PYTHON_INTERPRETER) negprice/features.py
 
 
+## Run the backtest
+.PHONY: backtest
+backtest:
+	$(PYTHON_INTERPRETER) negprice/backtest.py
+
 #################################################################################
 # Self Documenting Commands                                                     #
 #################################################################################
