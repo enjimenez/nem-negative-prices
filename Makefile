@@ -73,10 +73,15 @@ data: requirements
 	$(PYTHON_INTERPRETER) negprice/features.py
 
 
-## Run the backtest
+## Run the rolling-origin backtest (needs data/processed/features.parquet)
 .PHONY: backtest
 backtest:
 	$(PYTHON_INTERPRETER) negprice/backtest.py
+
+
+## Rebuild everything: data, features, backtest
+.PHONY: all
+all: data backtest
 
 #################################################################################
 # Self Documenting Commands                                                     #
