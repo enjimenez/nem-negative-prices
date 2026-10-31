@@ -26,7 +26,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 import typer
 
-from negprice.config import PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
+import os
+import subprocess
+from datetime import datetime
+
+
+from negprice.config import PROJ_ROOT, PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
 
 app = typer.Typer()
 
@@ -49,6 +54,30 @@ SEASONS = {
     6: "winter", 7: "winter", 8: "winter",
     9: "spring", 10: "spring", 11: "spring",
 }  # fmt: skip
+
+# ---------------------------------------------------------------- run logging
+
+RUN_LOG = REPORTS_DIR / "backtest" / "runs.csv"
+CODE_PATHS = ["negprice", "tests", "Makefile", "pyproject.toml", "uv.lock"]
+
+def _git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=PROJ_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def log_run(headline: pd.DataFrame, note: str) -> None:
+    """Append the headline table of this run, with metadata, to the run log."""
+    entry = headline.copy()
+    entry.insert(0, "note", note)
+    entry.insert(0, "code_changed_since_commit",
+                 bool(_git("status", "--porcelain", "--", *CODE_PATHS)))
+    entry.insert(0, "git_commit", _git("rev-parse", "--short", "HEAD"))
+    entry.insert(0, "run_at", datetime.now().astimezone().isoformat(timespec="seconds"))
+    if RUN_LOG.exists():
+        entry = pd.concat([pd.read_csv(RUN_LOG), entry], ignore_index=True)
+    RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
+    entry.to_csv(RUN_LOG, index=False)
 
 
 # ---------------------------------------------------------------- groupings
@@ -430,7 +459,12 @@ def main(
     logger.success(f"Tables: {', '.join(tables)} -> {out_dir}")
     with pd.option_context("display.width", 140, "display.precision", 4):
         print(tables["headline"].to_string(index=False))
-
+    log_run(pd.read_csv(REPORTS_DIR / "backtest" / "headline.csv"),
+            os.environ["NOTE"].strip())
 
 if __name__ == "__main__":
+    note = os.environ.get("NOTE", "").strip()
+    if not note:
+        raise SystemExit('Set a note: make backtest NOTE="what changed and why"')
     app()
+    

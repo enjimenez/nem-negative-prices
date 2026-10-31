@@ -61,7 +61,6 @@ create_environment:
 # PROJECT RULES                                                                 #
 #################################################################################
 
-
 ## Make dataset
 .PHONY: data
 data: requirements
@@ -73,14 +72,14 @@ data: requirements
 	$(PYTHON_INTERPRETER) negprice/features.py
 
 
-## Run the rolling-origin backtest (needs data/processed/features.parquet)
+## Run the rolling-origin backtest: make backtest NOTE="why this run"
 .PHONY: backtest
 backtest:
-	$(PYTHON_INTERPRETER) negprice/backtest.py
-
+	NOTE="$(NOTE)" $(PYTHON_INTERPRETER) negprice/backtest.py
 
 ## Rebuild everything: data, features, backtest
 .PHONY: all
+all: NOTE = full rebuild (make all)
 all: data backtest
 
 #################################################################################
