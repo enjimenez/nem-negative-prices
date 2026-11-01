@@ -25,6 +25,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 import typer
+from xgboost import XGBClassifier
 
 import os
 import subprocess
@@ -32,6 +33,7 @@ from datetime import datetime
 
 
 from negprice.config import PROJ_ROOT, PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
+from negprice.features import FEATURES
 
 app = typer.Typer()
 
@@ -235,6 +237,53 @@ class AemoRecal:
 
 
 BENCHMARKS = [Baseline(), AemoRaw(), AemoRecal()]
+
+
+XGB_V1_PARAMS = {
+    "objective": "binary:logistic",
+    "n_estimators": 500,
+    "learning_rate": 0.05,
+    "max_depth": 6,
+    "min_child_weight": 1,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "tree_method": "hist",
+    "random_state": SEED,
+    "n_jobs": -1,
+}
+
+
+class XGBoostV1:
+    """Gradient-boosted trees on the known-at-issue features (decision L), one fixed
+    setting. Missing values are left to XGBoost. The region's own neighbour-price
+    column is dropped because it is always empty."""
+
+    name = "xgb_v1"
+    candidates = [XGB_V1_PARAMS]
+    fixed_cutoff = None
+
+    @staticmethod
+    def feature_columns(region: str) -> list[str]:
+        return [c for c in FEATURES if c != f"pd_rrp_{region.lower()}"]
+
+    @staticmethod
+    def _region(rows) -> str:
+        regions = rows["REGIONID"].unique()
+        if len(regions) != 1:
+            raise ValueError(f"xgb_v1 expects one region per call, got {list(regions)}")
+        return regions[0]
+
+    def fit(self, train, params):
+        cols = self.feature_columns(self._region(train))
+        model = XGBClassifier(**params).fit(train[cols], train["is_neg"])
+        return model, cols
+
+    def predict(self, fitted, rows):
+        model, cols = fitted
+        return model.predict_proba(rows[cols])[:, 1]
+
+
+MODELS = [*BENCHMARKS, XGBoostV1()]
 
 
 # ------------------------------------------------------------------ metrics
@@ -448,7 +497,7 @@ def main(
     features = pd.read_parquet(features_path)
     folds = make_folds()
     logger.info(f"{len(folds)} folds: {folds[0].test_start:%b %Y} - {folds[-1].test_end:%b %Y}")
-    preds, selections = run_backtest(features, BENCHMARKS, folds)
+    preds, selections = run_backtest(features, MODELS, folds)
     preds.to_parquet(preds_path, index=False)
     out_dir.mkdir(parents=True, exist_ok=True)
     selections.to_csv(out_dir / "selections.csv", index=False)

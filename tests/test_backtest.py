@@ -8,6 +8,7 @@ from negprice.backtest import (
     BASELINE_WEEKS,
     BENCHMARKS,
     GAP,
+    MODELS,
     N_FOLDS,
     TEST_START,
     TRAIN_MONTHS,
@@ -22,8 +23,10 @@ from negprice.backtest import (
     run_backtest,
     run_fold,
     scorable,
+    XGBoostV1,
 )
-from negprice.config import PROCESSED_DATA_DIR
+from negprice.config import PROCESSED_DATA_DIR, REGIONS
+from negprice.features import KNOWN_AT_COLS, LABELS
 
 FEATURES_PATH = PROCESSED_DATA_DIR / "features.parquet"
 FOLDS = make_folds()
@@ -90,7 +93,7 @@ def test_training_ends_two_days_before_test_month(data):
 
 # 2
 @needs_data
-@pytest.mark.parametrize("model", BENCHMARKS, ids=lambda m: m.name)
+@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.name)
 def test_scrambled_test_labels_change_nothing(data, model):
     region = data[data["REGIONID"] == "SA1"]
     fold = FOLDS[17]
@@ -207,3 +210,23 @@ def test_bootstrap_reproducible():
     assert bootstrap_ci(d, seed=0) != bootstrap_ci(d, seed=1)
     mean, lo, hi = bootstrap_ci(np.full(36, 0.003))
     assert mean == lo == hi == pytest.approx(0.003)
+
+
+# 11
+@pytest.mark.parametrize("region", REGIONS)
+def test_xgb_features_exclude_labels_known_at_and_own_neighbour(region):
+    cols = XGBoostV1.feature_columns(region)
+    assert len(cols) == 24
+    forbidden = set(LABELS) | set(KNOWN_AT_COLS) | {"DAY", "HH_END", "issue_time", "REGIONID"}
+    assert not forbidden & set(cols)
+    assert f"pd_rrp_{region.lower()}" not in cols
+    assert "pd_rrp" in cols
+
+
+# 12
+@needs_data
+def test_xgb_reproducible(data):
+    region = data[data["REGIONID"] == "SA1"]
+    a = run_fold(region, XGBoostV1(), FOLDS[17])
+    b = run_fold(region, XGBoostV1(), FOLDS[17])
+    np.testing.assert_array_equal(a.prob, b.prob)
