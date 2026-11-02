@@ -14,9 +14,17 @@ Model interface (any object with):
     fixed_cutoff: float | None   None = choose the max-F1 cutoff on validation
     fit(train, params) -> fitted
     predict(fitted, rows) -> np.ndarray of P(negative); rows never contain is_neg
+
+Each model's forecasts are cached in data/processed/backtest_cache/. A model is rerun
+only when its fingerprint changes: the feature data, the fold and fitting code, the
+model's own code and settings, or library versions (see fingerprint).
 """
 
 from dataclasses import dataclass
+import hashlib
+from importlib.metadata import version
+import inspect
+import json
 from pathlib import Path
 
 from loguru import logger
@@ -48,6 +56,7 @@ CUTOFF_GRID = np.round(np.arange(0.01, 1.0, 0.01), 2)
 N_BOOT = 10_000
 SEED = 0
 LAST_12_START = pd.Timestamp("2025-10-01")
+CACHE_DIR = PROCESSED_DATA_DIR / "backtest_cache"
 
 BLOCKS = ["night", "morning", "midday", "evening"]
 SEASONS = {
@@ -68,9 +77,11 @@ def _git(*args: str) -> str:
     ).stdout.strip()
 
 
-def log_run(headline: pd.DataFrame, note: str) -> None:
-    """Append the headline table of this run, with metadata, to the run log."""
+def log_run(headline: pd.DataFrame, note: str, recomputed: list[str]) -> None:
+    """Append the headline table of this run, with metadata, to the run log.
+    `recomputed`: models fitted in this run (the others came from the cache)."""
     entry = headline.copy()
+    entry.insert(0, "recomputed", " ".join(recomputed) or "none")
     entry.insert(0, "note", note)
     entry.insert(0, "code_changed_since_commit",
                  bool(_git("status", "--porcelain", "--", *CODE_PATHS)))
@@ -283,7 +294,22 @@ class XGBoostV1:
         return model.predict_proba(rows[cols])[:, 1]
 
 
-MODELS = [*BENCHMARKS, XGBoostV1()]
+XGB_V2_GRID = [
+    {**XGB_V1_PARAMS, "max_depth": d, "n_estimators": n}
+    for d in (4, 5, 6)
+    for n in (50, 100, 150, 200)
+]
+
+
+class XGBoostV2(XGBoostV1):
+    """xgb_v1 with a grid over tree depth and number of trees, chosen per fold on the
+    validation months."""
+
+    name = "xgb_v2"
+    candidates = XGB_V2_GRID
+
+
+MODELS = [*BENCHMARKS, XGBoostV1(), XGBoostV2()]
 
 
 # ------------------------------------------------------------------ metrics
@@ -424,46 +450,126 @@ def run_fold(data: pd.DataFrame, model, fold: Fold) -> FoldResult:
     return FoldResult(params, cutoff, val_brier, test.index, prob)
 
 
-def run_backtest(features: pd.DataFrame, models, folds, regions=REGIONS):
-    df = features.copy()
-    if "base_prob" not in df:
-        df["base_prob"] = add_baseline(df)
+def run_model(df: pd.DataFrame, model, folds, regions) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """All folds of one model in every region: raw forecasts and chosen settings."""
     preds, selections = [], []
     for region in regions:
         data = df[df["REGIONID"] == region]
-        for model in models:
-            for fold in folds:
-                r = run_fold(data, model, fold)
-                test = data.loc[r.test_index]
-                preds.append(
-                    pd.DataFrame(
-                        {
-                            "REGIONID": region,
-                            "model": model.name,
-                            "fold": fold.number,
-                            "HH_END": test["HH_END"].to_numpy(),
-                            "DAY": test["DAY"].to_numpy(),
-                            "local_hour": test["local_hour"].to_numpy(),
-                            "admin_price": test["admin_price"].to_numpy(),
-                            "pd_rrp": test["pd_rrp"].to_numpy(),
-                            "is_neg": test["is_neg"].to_numpy(),
-                            "prob": r.prob,
-                            "call": r.prob >= r.cutoff,
-                            "scored": scorable(test).to_numpy(),
-                        }
-                    )
-                )
-                selections.append(
+        for fold in folds:
+            r = run_fold(data, model, fold)
+            test = data.loc[r.test_index]
+            preds.append(
+                pd.DataFrame(
                     {
                         "REGIONID": region,
                         "model": model.name,
                         "fold": fold.number,
-                        "test_start": fold.test_start,
-                        "params": str(r.params),
-                        "cutoff": r.cutoff,
-                        "val_brier": r.val_brier,
+                        "HH_END": test["HH_END"].to_numpy(),
+                        "DAY": test["DAY"].to_numpy(),
+                        "local_hour": test["local_hour"].to_numpy(),
+                        "admin_price": test["admin_price"].to_numpy(),
+                        "pd_rrp": test["pd_rrp"].to_numpy(),
+                        "is_neg": test["is_neg"].to_numpy(),
+                        "prob": r.prob,
+                        "call": r.prob >= r.cutoff,
+                        "scored": scorable(test).to_numpy(),
                     }
                 )
+            )
+            selections.append(
+                {
+                    "REGIONID": region,
+                    "model": model.name,
+                    "fold": fold.number,
+                    "test_start": fold.test_start,
+                    "params": str(r.params),
+                    "cutoff": r.cutoff,
+                    "val_brier": r.val_brier,
+                }
+            )
+    return pd.concat(preds, ignore_index=True), pd.DataFrame(selections)
+
+
+# ------------------------------------------------------------------- cache
+
+# Code every model's forecasts depend on. Report and metric code is not listed: the
+# tables are always rebuilt from the forecasts. A model that uses another module-level
+# helper must add it here (or run with --force after changing it).
+HARNESS_CODE = [make_folds, run_fold, run_model, scorable, add_baseline, hour_block,
+                recall_precision_f1, best_f1_cutoff, brier]
+HARNESS_SETTINGS = {"BASELINE_WEEKS": BASELINE_WEEKS, "RECAL_CLIP": RECAL_CLIP,
+                    "CUTOFF_GRID": CUTOFF_GRID.tolist(), "BLOCKS": BLOCKS, "FEATURES": FEATURES}
+LIBRARIES = ["numpy", "pandas", "scikit-learn", "xgboost"]
+
+
+def data_hash(df: pd.DataFrame) -> str:
+    """Hash of the values, column names and dtypes of the feature table."""
+    h = hashlib.sha256(pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes())
+    h.update(repr([(c, str(t)) for c, t in df.dtypes.items()]).encode())
+    return h.hexdigest()
+
+
+def fingerprint(model, features_hash: str, folds, regions) -> str:
+    """Everything that decides a model's forecasts. Same fingerprint = same forecasts."""
+    parts = {
+        "features": features_hash,
+        "folds": [repr(f) for f in folds],
+        "regions": list(regions),
+        "harness": [inspect.getsource(f) for f in HARNESS_CODE],
+        "settings": HARNESS_SETTINGS,
+        "model": [inspect.getsource(c) for c in type(model).__mro__ if c is not object],
+        "candidates": repr(model.candidates),
+        "fixed_cutoff": repr(model.fixed_cutoff),
+        "libraries": {lib: version(lib) for lib in LIBRARIES},
+    }
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def load_cached(cache_dir: Path, name: str, fp: str):
+    meta = cache_dir / f"{name}.json"
+    if not meta.exists() or json.loads(meta.read_text())["fingerprint"] != fp:
+        return None
+    return (pd.read_parquet(cache_dir / f"{name}_preds.parquet"),
+            pd.read_parquet(cache_dir / f"{name}_selections.parquet"))
+
+
+def save_cached(cache_dir: Path, name: str, fp: str, preds, selections) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    preds.to_parquet(cache_dir / f"{name}_preds.parquet", index=False)
+    selections.to_parquet(cache_dir / f"{name}_selections.parquet", index=False)
+    saved_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    meta = {"fingerprint": fp, "saved_at": saved_at}
+    (cache_dir / f"{name}.json").write_text(json.dumps(meta))  # written last = complete
+
+
+# ---------------------------------------------------------------- the run
+
+
+def run_backtest(features: pd.DataFrame, models, folds, regions=REGIONS,
+                 cache_dir: Path | None = None, force: bool = False):
+    """Forecasts of every model. With cache_dir, a model whose fingerprint matches its
+    cached run is loaded instead of refitted (force=True refits all). The selections
+    table's `recomputed` column says which models were fitted in this call."""
+    df = features.copy()
+    if "base_prob" not in df:
+        df["base_prob"] = add_baseline(df)
+    features_hash = data_hash(features) if cache_dir is not None else None
+    preds, selections = [], []
+    for model in models:
+        cached, fp = None, None
+        if cache_dir is not None:
+            fp = fingerprint(model, features_hash, folds, regions)
+            cached = None if force else load_cached(cache_dir, model.name, fp)
+        if cached is None:
+            logger.info(f"{model.name}: fitting")
+            p, s = run_model(df, model, folds, regions)
+            if cache_dir is not None:
+                save_cached(cache_dir, model.name, fp, p, s)
+        else:
+            logger.info(f"{model.name}: unchanged, loaded from cache")
+            p, s = cached
+        preds.append(p)
+        selections.append(s.assign(recomputed=cached is None))
     preds = pd.concat(preds, ignore_index=True)
     preds["block"] = hour_block(preds["local_hour"])
     preds["season"] = preds["DAY"].dt.month.map(SEASONS)
@@ -471,7 +577,7 @@ def run_backtest(features: pd.DataFrame, models, folds, regions=REGIONS):
     missing = preds["scored"] & preds["prob"].isna()
     if missing.any():
         raise ValueError(f"Missing forecasts on {missing.sum()} scored rows")
-    return preds, pd.DataFrame(selections)
+    return preds, pd.concat(selections, ignore_index=True)
 
 
 def report(preds: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -492,12 +598,13 @@ def main(
     features_path: Path = PROCESSED_DATA_DIR / "features.parquet",
     preds_path: Path = PROCESSED_DATA_DIR / "backtest_predictions.parquet",
     out_dir: Path = REPORTS_DIR / "backtest",
+    force: bool = typer.Option(False, "--force", help="Refit every model, ignore the cache"),
 ):
     logger.info(f"Reading {features_path}")
     features = pd.read_parquet(features_path)
     folds = make_folds()
     logger.info(f"{len(folds)} folds: {folds[0].test_start:%b %Y} - {folds[-1].test_end:%b %Y}")
-    preds, selections = run_backtest(features, MODELS, folds)
+    preds, selections = run_backtest(features, MODELS, folds, cache_dir=CACHE_DIR, force=force)
     preds.to_parquet(preds_path, index=False)
     out_dir.mkdir(parents=True, exist_ok=True)
     selections.to_csv(out_dir / "selections.csv", index=False)
@@ -508,8 +615,9 @@ def main(
     logger.success(f"Tables: {', '.join(tables)} -> {out_dir}")
     with pd.option_context("display.width", 140, "display.precision", 4):
         print(tables["headline"].to_string(index=False))
+    recomputed = selections.loc[selections["recomputed"], "model"].unique().tolist()
     log_run(pd.read_csv(REPORTS_DIR / "backtest" / "headline.csv"),
-            os.environ["NOTE"].strip())
+            os.environ["NOTE"].strip(), recomputed)
 
 if __name__ == "__main__":
     note = os.environ.get("NOTE", "").strip()

@@ -72,10 +72,10 @@ data: requirements
 	$(PYTHON_INTERPRETER) negprice/features.py
 
 
-## Run the rolling-origin backtest: make backtest NOTE="why this run"
+## Run the rolling-origin backtest: make backtest NOTE="why this run" [FORCE=1 refits every model]
 .PHONY: backtest
 backtest:
-	NOTE="$(NOTE)" $(PYTHON_INTERPRETER) negprice/backtest.py
+	NOTE="$(NOTE)" $(PYTHON_INTERPRETER) negprice/backtest.py $(if $(FORCE),--force,)
 
 ## Rebuild everything: data, features, backtest
 .PHONY: all

@@ -230,3 +230,38 @@ def test_xgb_reproducible(data):
     a = run_fold(region, XGBoostV1(), FOLDS[17])
     b = run_fold(region, XGBoostV1(), FOLDS[17])
     np.testing.assert_array_equal(a.prob, b.prob)
+
+# 13: forecast cache
+def _small(data):
+    return data[data["REGIONID"] == "SA1"]
+
+
+@needs_data
+def test_cache_reuses_unchanged_models(data, tmp_path):
+    folds = FOLDS[:2]
+    p1, s1 = run_backtest(_small(data), BENCHMARKS, folds, ["SA1"], cache_dir=tmp_path)
+    p2, s2 = run_backtest(_small(data), BENCHMARKS, folds, ["SA1"], cache_dir=tmp_path)
+    assert s1["recomputed"].all()
+    assert not s2["recomputed"].any()
+    pd.testing.assert_frame_equal(p1, p2)
+
+
+@needs_data
+def test_cache_refits_when_data_settings_or_force_change(data, tmp_path):
+    folds = FOLDS[:2]
+    model = BENCHMARKS[2]  # aemo_recal
+    run_backtest(_small(data), [model], folds, ["SA1"], cache_dir=tmp_path)
+
+    changed = _small(data).copy()
+    changed.loc[changed.index[-1], "pd_rrp"] += 1.0
+    _, s = run_backtest(changed, [model], folds, ["SA1"], cache_dir=tmp_path)
+    assert s["recomputed"].all(), "changed feature data must refit"
+
+    class Tweaked(type(model)):
+        candidates = [{"tweak": 1}]
+
+    _, s = run_backtest(changed, [Tweaked()], folds, ["SA1"], cache_dir=tmp_path)
+    assert s["recomputed"].all(), "changed settings must refit"
+
+    _, s = run_backtest(changed, [model], folds, ["SA1"], cache_dir=tmp_path, force=True)
+    assert s["recomputed"].all(), "force must refit"
