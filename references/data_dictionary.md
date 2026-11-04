@@ -96,6 +96,9 @@ Predispatch is not a statistical forecast: it runs the dispatch engine on the bi
 | `pd_uigf` | float, MW | Forecast unconstrained output of semi-scheduled wind + solar | Input |
 | `pd_ss_solar_uigf` | float, MW | Solar-farm part of `pd_uigf` | Input |
 | `pd_ss_wind_uigf` | float, MW | Wind-farm part of `pd_uigf` | Input |
+| `pd_rrp_qld1` | float, $/MWh | AEMO's forecast price for QLD1 (same 13:00 run), same value on every region's row for that half-hour. QLD1 is not modelled | Input |
+| `pd_rrp_tas1` | float, $/MWh | AEMO's forecast price for TAS1 (same 13:00 run), same value on every region's row for that half-hour. TAS1 is not modelled | Input |
+| `pd_ext_known_at` | datetime | `RUN_DATETIME` of the QLD1/TAS1 prices = 13:00 on D-1 | Leakage control |
 
 ## AEMO rooftop PV forecast (`pvf_`)
 
@@ -155,6 +158,7 @@ columns `pd_*` and `pd_known_at` are copied from the panel.
 | `is_holiday` | 1 if `DAY` is a public holiday in the region's state (`holidays` package) | Calendar |
 | `month` | Month of `DAY`, 1–12 | Calendar |
 | `pd_rrp_sa1`, `pd_rrp_vic1`, `pd_rrp_nsw1` | AEMO 13:00-run forecast price of that region for the same half-hour. NaN on the region's own rows (use `pd_rrp`) | `pd_nb_known_at` |
+| `pd_rrp_qld1`, `pd_rrp_tas1` | AEMO 13:00-run forecast price of QLD1 / TAS1 for the same half-hour, same value on every region's row (copied from the panel). Used by `xgb_v3` only | `pd_ext_known_at` |
 | `pvf_mw` | AEMO rooftop PV forecast, mean (`pvf_powermean`), latest version ≤ 12:30 on D-1 | `pvf_known_at` |
 | `pvf_age_h` | Hours between the PV forecast version and `issue_time` | `pvf_known_at` |
 | `neg_share_4w` | Share of negative half-hours (`is_neg`) at the same half-hour over D-29 … D-2, `admin_price` days excluded. NaN for the first 29 days of data | `neg_share_4w_known_at` (D-1 00:00) |

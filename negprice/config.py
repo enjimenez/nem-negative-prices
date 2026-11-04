@@ -33,6 +33,8 @@ except ModuleNotFoundError:
 
 # NEM settings
 REGIONS = ["SA1", "VIC1", "NSW1"]
+# Regions whose AEMO forecast price is kept as a feature only (not modelled)
+PRICE_ONLY_REGIONS = ["QLD1", "TAS1"]
 START = "2021/10/01 00:00:00"
 END = "2026/10/01 00:00:00"
 NEMOSIS_CACHE = RAW_DATA_DIR / "nemosis_cache"

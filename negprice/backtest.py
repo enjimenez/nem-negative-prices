@@ -41,7 +41,11 @@ from datetime import datetime
 
 
 from negprice.config import PROJ_ROOT, PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
-from negprice.features import FEATURES
+from negprice.features import EXT_COLS, FEATURES
+
+# Features of xgb_v1 and xgb_v2, kept as they were scored: everything except the
+# QLD1/TAS1 forecast prices, which only xgb_v3 uses
+BASE_FEATURES = [c for c in FEATURES if c not in EXT_COLS]
 
 app = typer.Typer()
 
@@ -272,10 +276,11 @@ class XGBoostV1:
     name = "xgb_v1"
     candidates = [XGB_V1_PARAMS]
     fixed_cutoff = None
+    features = BASE_FEATURES
 
-    @staticmethod
-    def feature_columns(region: str) -> list[str]:
-        return [c for c in FEATURES if c != f"pd_rrp_{region.lower()}"]
+    @classmethod
+    def feature_columns(cls, region: str) -> list[str]:
+        return [c for c in cls.features if c != f"pd_rrp_{region.lower()}"]
 
     @staticmethod
     def _region(rows) -> str:
@@ -309,7 +314,14 @@ class XGBoostV2(XGBoostV1):
     candidates = XGB_V2_GRID
 
 
-MODELS = [*BENCHMARKS, XGBoostV1(), XGBoostV2()]
+class XGBoostV3(XGBoostV2):
+    """xgb_v2 (same grid) plus the QLD1 and TAS1 forecast prices for every region."""
+
+    name = "xgb_v3"
+    features = FEATURES
+
+
+MODELS = [*BENCHMARKS, XGBoostV1(), XGBoostV2(), XGBoostV3()]
 
 
 # ------------------------------------------------------------------ metrics

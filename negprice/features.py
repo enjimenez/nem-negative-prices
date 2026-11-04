@@ -13,7 +13,7 @@ import pandas as pd
 import typer
 from loguru import logger
 
-from negprice.config import PROCESSED_DATA_DIR
+from negprice.config import PRICE_ONLY_REGIONS, PROCESSED_DATA_DIR
 
 app = typer.Typer()
 
@@ -40,6 +40,8 @@ PD_COLS = [
     "pd_ss_solar_uigf",
     "pd_ss_wind_uigf",
 ]
+# Forecast prices of regions that are not modelled (QLD1, TAS1), copied from the panel
+EXT_COLS = [f"pd_rrp_{r.lower()}" for r in PRICE_ONLY_REGIONS]
 PV_COL = "pvf_powermean"
 SILO_COLS = ["silo_daily_rain", "silo_max_temp", "silo_radiation"]
 
@@ -58,6 +60,7 @@ FEATURE_KNOWN_AT = {
     "pd_rrp_sa1": "pd_nb_known_at",
     "pd_rrp_vic1": "pd_nb_known_at",
     "pd_rrp_nsw1": "pd_nb_known_at",
+    **{c: "pd_ext_known_at" for c in EXT_COLS},
     "pvf_mw": "pvf_known_at",
     "pvf_age_h": "pvf_known_at",
     "neg_share_4w": "neg_share_4w_known_at",
@@ -103,7 +106,7 @@ def calendar_features(p: pd.DataFrame) -> pd.DataFrame:
 
 
 def aemo_features(p: pd.DataFrame) -> pd.DataFrame:
-    f = p[PD_COLS + ["pd_known_at"]].copy()
+    f = p[PD_COLS + ["pd_known_at"] + EXT_COLS + ["pd_ext_known_at"]].copy()
     price = p.pivot(index="HH_END", columns="REGIONID", values="pd_rrp")
     known = p.pivot(index="HH_END", columns="REGIONID", values="pd_known_at")
     nb_known = []

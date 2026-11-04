@@ -4,8 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from negprice.config import PROCESSED_DATA_DIR, PROJ_ROOT
+from negprice.config import INTERIM_DATA_DIR, PRICE_ONLY_REGIONS, PROCESSED_DATA_DIR, PROJ_ROOT
 from negprice.features import (
+    EXT_COLS,
     FEATURE_KNOWN_AT,
     FEATURES,
     PD_COLS,
@@ -18,6 +19,7 @@ from negprice.predispatch import KNOWN_GAPS
 FEATURES_PATH = PROCESSED_DATA_DIR / "features.parquet"
 PANEL_PATH = PROCESSED_DATA_DIR / "panel.parquet"
 DICT_PATH = PROJ_ROOT / "references" / "data_dictionary.md"
+PREDISPATCH_PRICE_PATH = INTERIM_DATA_DIR / "predispatch_price.parquet"
 DAY1 = pd.Timedelta(days=1)
 
 pytestmark = pytest.mark.skipif(
@@ -92,7 +94,7 @@ def test_unique_region_half_hour(f):
 def test_nans_only_where_expected(f):
     start = f["DAY"].min()
     gap = predispatch_gap(f)
-    expected = {c: gap for c in PD_COLS}
+    expected = {c: gap for c in PD_COLS + EXT_COLS}
     for r in REGION_INFO:
         expected[f"pd_rrp_{r.lower()}"] = gap | (f["REGIONID"] == r)
     for c in ["silo_rain_d2", "silo_max_temp_d2", "silo_radiation_d2"]:
@@ -151,6 +153,7 @@ def test_neg_share_hand_count(f, panel, region, hh_end):
 # 9
 def test_no_day_d_actuals_in_main_table(f, panel):
     allowed = {"REGIONID", "HH_END", "DAY", "is_neg", "admin_price", "pd_known_at", "pvf_known_at"}
+    allowed |= set(EXT_COLS) | {"pd_ext_known_at"}  # AEMO forecasts, known at 13:00 on D-1
     leaked = (set(panel.columns) - allowed - set(PD_COLS)) & set(f.columns)
     assert not leaked, f"Panel actuals in the feature table: {leaked}"
     weather_d = [c for c in f.columns if c.startswith("silo_") and "_d2" not in c]
@@ -162,3 +165,16 @@ def test_features_documented(f):
     text = DICT_PATH.read_text()
     missing = [c for c in FEATURES if f"`{c}`" not in text]
     assert not missing, f"Not in the data dictionary: {missing}"
+
+
+# 11
+@pytest.mark.skipif(not PREDISPATCH_PRICE_PATH.exists(), reason="predispatch_price not built")
+def test_price_only_regions_match_predispatch(f):
+    src = pd.read_parquet(PREDISPATCH_PRICE_PATH)
+    for r in PRICE_ONLY_REGIONS:
+        price = src[src["REGIONID"] == r].set_index("DATETIME")["RRP"]
+        assert price.index.is_unique, r
+        expected = f["HH_END"].map(price)
+        pd.testing.assert_series_equal(
+            f[f"pd_rrp_{r.lower()}"], expected, check_names=False
+        )

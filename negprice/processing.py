@@ -6,6 +6,7 @@ from negprice.config import (
     ADMIN_PRICE_DAYS,
     END,
     INTERIM_DATA_DIR,
+    PRICE_ONLY_REGIONS,
     PROCESSED_DATA_DIR,
     REGIONS,
     START,
@@ -78,9 +79,24 @@ def _tag(df: pd.DataFrame, prefix: str, keys: list[str]) -> pd.DataFrame:
     return df.rename(columns={c: prefix + c.lower() for c in df.columns if c not in keys})
 
 
+def price_only_wide(pd_price: pd.DataFrame) -> pd.DataFrame:
+    """QLD1/TAS1 forecast prices as one column per region, one row per half-hour.
+
+    Joined on HH_END, so every modelled region's row carries the same values.
+    """
+    ext = pd_price[pd_price["REGIONID"].isin(PRICE_ONLY_REGIONS)]
+    wide = ext.pivot(index="DATETIME", columns="REGIONID", values="RRP")
+    wide = wide.reindex(columns=PRICE_ONLY_REGIONS)
+    wide.columns = [f"pd_rrp_{r.lower()}" for r in wide.columns]
+    wide["pd_ext_known_at"] = ext.groupby("DATETIME")["RUN_DATETIME"].max()
+    return wide.rename_axis("HH_END").reset_index()
+
+
 def build_panel(grid, price_hh, regionsum_hh, pv_act, pd_price, pd_rs, pv_fc, silo):
     """Left-join every source onto the (region, half-hour) grid."""
     rs = _tag(regionsum_hh, "", KEYS)
+    ext = price_only_wide(pd_price)
+    pd_price = pd_price[pd_price["REGIONID"].isin(REGIONS)]
 
     pdx = pd_price.merge(
         pd_rs,
@@ -103,6 +119,7 @@ def build_panel(grid, price_hh, regionsum_hh, pv_act, pd_price, pd_rs, pv_fc, si
     panel = grid
     for src in [price_hh, rs, pv_act, pdx, pvf]:
         panel = panel.merge(src, on=KEYS, how="left", validate="one_to_one")
+    panel = panel.merge(ext, on="HH_END", how="left", validate="many_to_one")
     return panel.merge(sw, on=["REGIONID", "DAY"], how="left", validate="many_to_one")
 
 

@@ -5,7 +5,7 @@ For each target day D we keep only the run labelled 13:00 on D-1 (executed at 12
 right after bids for day D close), and only its 48 half-hours of day D.
 
 Output: data/interim/predispatch_price.parquet and data/interim/predispatch_regionsum.parquet
-- Regions in config.REGIONS only
+- Regions in config.REGIONS; the PRICE table also keeps QLD1 and TAS1
 - DATETIME = END of the half-hour, NEM time (UTC+10, no daylight saving), no timezone
 """
 
@@ -18,7 +18,14 @@ import pandas as pd
 import requests
 import typer
 
-from negprice.config import END, INTERIM_DATA_DIR, RAW_DATA_DIR, REGIONS, START
+from negprice.config import (
+    END,
+    INTERIM_DATA_DIR,
+    PRICE_ONLY_REGIONS,
+    RAW_DATA_DIR,
+    REGIONS,
+    START,
+)
 
 app = typer.Typer()
 
@@ -111,9 +118,9 @@ def read_13h_runs(path: Path, columns: list[str]) -> pd.DataFrame:
     return pd.concat(keep, ignore_index=True)
 
 
-def tidy(df: pd.DataFrame) -> pd.DataFrame:
+def tidy(df: pd.DataFrame, regions: list[str]) -> pd.DataFrame:
     """Types, regions, pricing run only, and only the 48 half-hours of day D."""
-    df = df[df["REGIONID"].isin(REGIONS)].copy()
+    df = df[df["REGIONID"].isin(regions)].copy()
     df = df[pd.to_numeric(df["INTERVENTION"]) == 0].drop(columns="INTERVENTION")
 
     run_date = pd.to_datetime(df["PREDISPATCHSEQNO"].str[:8], format="%Y%m%d")
@@ -159,7 +166,8 @@ def main(start: str = START, end: str = END):
             logger.info(f"PREDISPATCH{table}: {year}-{month:02d}")
             for path in download(table, year, month):
                 frames.append(read_13h_runs(path, columns))
-        df = tidy(pd.concat(frames, ignore_index=True))
+        regions = REGIONS + PRICE_ONLY_REGIONS if table == "PRICE" else REGIONS
+        df = tidy(pd.concat(frames, ignore_index=True), regions)
         df = df[(df["DATETIME"] > start_ts) & (df["DATETIME"] <= end_ts)]
         check(df, table, start_ts, end_ts)
         out_path = INTERIM_DATA_DIR / f"predispatch_{table.lower()}.parquet"
