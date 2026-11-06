@@ -39,7 +39,7 @@ import os
 import subprocess
 from datetime import datetime
 
-
+from negprice.chronos_fm import OUT_FILE as CHRONOS_FILE
 from negprice.config import PROJ_ROOT, PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
 from negprice.features import EXT_COLS, FEATURES
 
@@ -321,8 +321,54 @@ class XGBoostV3(XGBoostV2):
     features = FEATURES
 
 
-MODELS = [*BENCHMARKS, XGBoostV1(), XGBoostV2(), XGBoostV3()]
+class ChronosPriceOnly:
+    """Zero-shot Chronos-2 small on the price history only (decision AB). Nothing is
+    fitted: it reads the forecasts made once by `python -m negprice.chronos_fm`. The
+    forecast file's hash is the only candidate setting, so the cache refits this model
+    whenever the forecasts are regenerated."""
 
+    name = "chronos_price"
+    version = "price_only"
+    fixed_cutoff = None
+    _loaded: dict = {}
+
+    @staticmethod
+    def _file_hash(path: Path = CHRONOS_FILE) -> str | None:
+        if not path.exists():
+            return None
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+    @property
+    def candidates(self) -> list[dict]:
+        return [{"forecasts": self._file_hash()}]
+
+    def fit(self, train, params):
+        """The saved forecasts for this version, indexed by (REGIONID, HH_END)."""
+        key = (self.version, params["forecasts"])
+        if params["forecasts"] is None:
+            raise FileNotFoundError(f"{CHRONOS_FILE} missing: run python -m negprice.chronos_fm")
+        if key not in self._loaded:
+            fc = pd.read_parquet(CHRONOS_FILE)
+            fc = fc[fc["version"] == self.version]
+            self._loaded[key] = fc.set_index(["REGIONID", "HH_END"])["p_neg"]
+        return self._loaded[key]
+
+    def predict(self, fitted, rows):
+        idx = pd.MultiIndex.from_frame(rows[["REGIONID", "HH_END"]])
+        return fitted.reindex(idx).to_numpy(float)
+
+
+class ChronosCovariates(ChronosPriceOnly):
+    """Zero-shot Chronos-2 small on the price history plus 17 covariates: AEMO's 13:00
+    forecasts, rooftop PV forecast, SILO weather on D-2 and the holiday flag (decision AB)."""
+
+    name = "chronos_cov"
+    version = "covariates"
+
+
+CHRONOS = [ChronosPriceOnly(), ChronosCovariates()]
+
+MODELS = [*BENCHMARKS, XGBoostV1(), XGBoostV2(), XGBoostV3(), *CHRONOS]
 
 # ------------------------------------------------------------------ metrics
 
@@ -602,6 +648,7 @@ def report(preds: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "by_block_season": score_table(s, ["model", "REGIONID", "block", "season"]),
         "vs_recal": compare(s, "aemo_recal"),
         "vs_raw": compare(s, "aemo_raw"),
+        **({"vs_xgb_v3": compare(s, "xgb_v3")} if "xgb_v3" in set(s["model"]) else {}),
     }
 
 

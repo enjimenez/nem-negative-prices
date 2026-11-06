@@ -7,6 +7,8 @@ import pytest
 from negprice.backtest import (
     BASELINE_WEEKS,
     BENCHMARKS,
+    CHRONOS,
+    CHRONOS_FILE,
     GAP,
     MODELS,
     N_FOLDS,
@@ -265,3 +267,44 @@ def test_cache_refits_when_data_settings_or_force_change(data, tmp_path):
 
     _, s = run_backtest(changed, [model], folds, ["SA1"], cache_dir=tmp_path, force=True)
     assert s["recomputed"].all(), "force must refit"
+
+
+# 14: Chronos zero-shot models (decision AB)
+needs_chronos = pytest.mark.skipif(
+    not CHRONOS_FILE.exists(), reason="run `python -m negprice.chronos_fm` first"
+)
+
+@pytest.fixture(scope="module")
+def chronos_preds(data):
+    p, _ = run_backtest(data, CHRONOS, FOLDS)
+    return p
+
+
+@needs_data
+@needs_chronos
+def test_chronos_scored_on_the_same_rows_as_benchmarks(preds, chronos_preds):
+    ref = preds[preds["scored"] & (preds["model"] == "aemo_recal")]
+    ref_keys = set(zip(ref["REGIONID"], ref["HH_END"]))
+    for name, g in chronos_preds[chronos_preds["scored"]].groupby("model"):
+        assert g["prob"].notna().all(), name
+        assert set(zip(g["REGIONID"], g["HH_END"])) == ref_keys, name
+
+
+@needs_data
+@needs_chronos
+def test_chronos_probabilities_are_the_saved_forecasts(chronos_preds):
+    fc = pd.read_parquet(CHRONOS_FILE)
+    for model in CHRONOS:
+        mine = chronos_preds[chronos_preds["model"] == model.name]
+        saved = fc[fc["version"] == model.version]
+        merged = mine.merge(saved, on=["REGIONID", "HH_END"], how="left", validate="one_to_one")
+        np.testing.assert_array_equal(merged["prob"].to_numpy(), merged["p_neg"].to_numpy())
+
+
+def test_chronos_cache_key_changes_with_the_forecast_file(tmp_path):
+    f = tmp_path / "fc.parquet"
+    pd.DataFrame({"p_neg": [0.1]}).to_parquet(f)
+    a = CHRONOS[0]._file_hash(f)
+    pd.DataFrame({"p_neg": [0.2]}).to_parquet(f)
+    assert CHRONOS[0]._file_hash(f) != a
+    assert CHRONOS[0]._file_hash(tmp_path / "missing.parquet") is None
