@@ -33,6 +33,7 @@ dependencies = [
     "requests>=2.34.2",
     "ruff",
     "scikit-learn",
+    "shap>=0.54.1",
     "torch>=2.15.0",
     "tqdm",
     "typer",
