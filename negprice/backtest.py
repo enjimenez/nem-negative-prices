@@ -436,6 +436,40 @@ def bootstrap_ci(d, n_boot: int = N_BOOT, seed: int = SEED, level: float = 0.95)
     lo, hi = np.quantile(means, [a, 1 - a])
     return float(d.mean()), float(lo), float(hi)
 
+def bss_draws(se_model, se_ref, n_boot: int = N_BOOT, seed: int = SEED) -> np.ndarray:
+    """BSS = 1 - (model error / reference error) in each resample of whole months.
+    se_model, se_ref: sum of squared errors per month, aligned month by month.
+    Same seed and draws as bootstrap_ci, so the same months are resampled."""
+    m, r = np.asarray(se_model, float), np.asarray(se_ref, float)
+    idx = np.random.default_rng(seed).choice(len(m), size=(n_boot, len(m)), replace=True)
+    return 1 - m[idx].sum(axis=1) / r[idx].sum(axis=1)
+
+
+def bss_bootstrap(se_model, se_ref, n_boot: int = N_BOOT, seed: int = SEED,
+                  level: float = 0.95) -> tuple[float, float, float]:
+    """Pooled BSS with a percentile bootstrap interval over months."""
+    m, r = np.asarray(se_model, float), np.asarray(se_ref, float)
+    a = (1 - level) / 2
+    lo, hi = np.quantile(bss_draws(m, r, n_boot, seed), [a, 1 - a])
+    return float(1 - m.sum() / r.sum()), float(lo), float(hi)
+
+
+def bss_intervals(preds: pd.DataFrame, models: list[str],
+                  reference: str = "aemo_recal") -> pd.DataFrame:
+    """BSS vs the reference with a 95% interval, per region, on scored rows."""
+    s = preds[preds["scored"]]
+    se = s.assign(month=s["DAY"].dt.to_period("M"), se=(s["prob"] - s["is_neg"]) ** 2)
+    sums = se.pivot_table(index=["REGIONID", "month"], columns="model", values="se",
+                          aggfunc="sum")
+    assert not sums[[*models, reference]].isna().any().any(), "models on different rows"
+    rows = []
+    for region, w in sums.groupby(level="REGIONID"):
+        for model in models:
+            bss, lo, hi = bss_bootstrap(w[model], w[reference])
+            rows.append({"REGIONID": region, "model": model, "reference": reference,
+                         "months": len(w), "bss": bss, "ci_low": lo, "ci_high": hi})
+    return pd.DataFrame(rows)
+
 
 def compare(preds: pd.DataFrame, reference: str) -> pd.DataFrame:
     """Monthly paired differences d = Brier(reference) - Brier(model), per region.

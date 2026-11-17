@@ -25,9 +25,12 @@ from negprice.backtest import (
     run_backtest,
     run_fold,
     scorable,
+    bss_bootstrap,
+    bss_intervals,
+    bss_draws,
     XGBoostV1,
 )
-from negprice.config import PROCESSED_DATA_DIR, REGIONS
+from negprice.config import PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
 from negprice.features import KNOWN_AT_COLS, LABELS
 
 FEATURES_PATH = PROCESSED_DATA_DIR / "features.parquet"
@@ -308,3 +311,54 @@ def test_chronos_cache_key_changes_with_the_forecast_file(tmp_path):
     pd.DataFrame({"p_neg": [0.2]}).to_parquet(f)
     assert CHRONOS[0]._file_hash(f) != a
     assert CHRONOS[0]._file_hash(tmp_path / "missing.parquet") is None
+
+
+PREDS_PATH = PROCESSED_DATA_DIR / "backtest_predictions.parquet"
+HEADLINE_PATH = REPORTS_DIR / "backtest" / "headline.csv"
+BAR_MODELS = ["xgb_v3", "chronos_price", "chronos_cov", "baseline"]
+needs_preds = pytest.mark.skipif(
+    not (PREDS_PATH.exists() and HEADLINE_PATH.exists()),
+    reason="backtest predictions or headline table not built",
+)
+
+
+def monthly_errors(seed: int, n: int = 36):
+    """Made-up monthly error sums: reference, and a model 20% better to 20% worse."""
+    rng = np.random.default_rng(seed)
+    ref = rng.uniform(50, 150, n)
+    return ref * rng.uniform(0.8, 1.2, n), ref
+
+
+def test_bss_reference_vs_itself_is_zero():  # (a)
+    _, ref = monthly_errors(1)
+    assert bss_bootstrap(ref, ref) == (0.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_bss_interval_contains_point_estimate(seed):  # (b)
+    bss, lo, hi = bss_bootstrap(*monthly_errors(seed))
+    assert lo <= bss <= hi
+
+
+def test_bss_bootstrap_reproducible():  # (c)
+    m, r = monthly_errors(2)
+    assert bss_bootstrap(m, r) == bss_bootstrap(m, r)
+    assert bss_bootstrap(m, r, seed=1) != bss_bootstrap(m, r)
+
+
+def test_bss_positive_exactly_when_model_error_lower():  # (d)
+    m, r = monthly_errors(3)
+    draws = bss_draws(m, r, n_boot=2_000, seed=0)
+    idx = np.random.default_rng(0).choice(len(m), size=(2_000, len(m)), replace=True)
+    assert ((draws > 0) == (m[idx].sum(axis=1) < r[idx].sum(axis=1))).all()
+    assert 0 < (draws > 0).mean() < 1  # both cases occur, so the check isn't empty
+
+
+@needs_preds
+def test_bss_intervals_on_the_backtest():  # (b) on real data + point estimate = headline
+    t = bss_intervals(pd.read_parquet(PREDS_PATH), BAR_MODELS)
+    assert len(t) == 12 and t["months"].eq(36).all()
+    assert (t["ci_low"] <= t["bss"]).all() and (t["bss"] <= t["ci_high"]).all()
+    head = pd.read_csv(HEADLINE_PATH).merge(t, on=["model", "REGIONID"])
+    assert len(head) == 12
+    assert np.allclose(head["bss"], head["bss_vs_recal"], atol=1e-12)
