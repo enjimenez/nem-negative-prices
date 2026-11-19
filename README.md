@@ -192,6 +192,10 @@ The figures (heatmap, reliability plots, SHAP) come from `notebooks/05-ej-final-
 - **AEMO** (NEMweb): dispatch prices, regional demand and rooftop PV actuals via [NEMOSIS](https://github.com/UNSW-CEEM/NEMOSIS); pre-dispatch forecasts (13:00 run) and rooftop PV forecasts downloaded directly from the MMSDM archive. © AEMO, used under AEMO's copyright permissions.
 - **SILO** (Queensland Government): daily weather. CC BY 4.0.
 
+## References
+
+- Ansari, A. F., Shchur, O., Küken, J., Auer, A., et al. (2025). *Chronos-2: From Univariate to Universal Forecasting*. [arXiv:2510.15821](https://arxiv.org/abs/2510.15821). Code: [amazon-science/chronos-forecasting](https://github.com/amazon-science/chronos-forecasting); model used: [autogluon/chronos-2-small](https://huggingface.co/autogluon/chronos-2-small).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
