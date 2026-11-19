@@ -17,7 +17,7 @@ import pandas as pd
 import numpy as np
 
 from negprice.backtest import bss_intervals, score_table
-from negprice.config import PROCESSED_DATA_DIR
+from negprice.config import PROCESSED_DATA_DIR, REPORTS_DIR
 
 MODEL = "xgb_v3"
 REFERENCE = "aemo_recal"
@@ -250,3 +250,4 @@ if __name__ == "__main__":
     fva_check(fva).to_csv(OUT_DIR / "forecast_vs_actual_check.csv", index=False)
     if WIN_DIR:
         print(f"Copied to {WIN_DIR}")
+    bars.to_csv(REPORTS_DIR / "backtest" / "bss_intervals.csv", index=False)
