@@ -8,10 +8,10 @@ what-if table.
 from pathlib import Path
 
 import holidays
+from loguru import logger
 import numpy as np
 import pandas as pd
 import typer
-from loguru import logger
 
 from negprice.config import PRICE_ONLY_REGIONS, PROCESSED_DATA_DIR
 

@@ -10,11 +10,11 @@ metric per region x hour block x season x test year, each with "All" (matrix).
 
 from itertools import product
 import os
-import shutil
 from pathlib import Path
+import shutil
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from negprice.backtest import bss_intervals, score_table
 from negprice.config import PROCESSED_DATA_DIR, REPORTS_DIR
@@ -173,7 +173,6 @@ def scorecard_bars(preds: pd.DataFrame | None = None) -> pd.DataFrame:
     assert len(t) == 3 * len(OTHER_MODELS)
     return t.sort_values(["region", "model_order"], ignore_index=True)
 
-
 def scorecard_matrix(preds: pd.DataFrame | None = None) -> pd.DataFrame:
     """Every metric per model x region x hour block x season x test year, where each of
     block, season and test year can also be "All"."""
@@ -223,7 +222,7 @@ def write_parquet(df: pd.DataFrame, path: Path) -> None:
 if __name__ == "__main__":
     preds = load_scored()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    if WIN_DIR: 
+    if WIN_DIR:
         WIN_DIR.mkdir(parents=True, exist_ok=True)
 
     heat = build(preds)

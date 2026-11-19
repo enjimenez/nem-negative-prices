@@ -21,11 +21,14 @@ model's own code and settings, or library versions (see fingerprint).
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 from importlib.metadata import version
 import inspect
 import json
+import os
 from pathlib import Path
+import subprocess
 
 from loguru import logger
 import numpy as np
@@ -35,12 +38,8 @@ from sklearn.metrics import roc_auc_score
 import typer
 from xgboost import XGBClassifier
 
-import os
-import subprocess
-from datetime import datetime
-
 from negprice.chronos_fm import OUT_FILE as CHRONOS_FILE
-from negprice.config import PROJ_ROOT, PROCESSED_DATA_DIR, REGIONS, REPORTS_DIR
+from negprice.config import PROCESSED_DATA_DIR, PROJ_ROOT, REGIONS, REPORTS_DIR
 from negprice.features import EXT_COLS, FEATURES
 
 # Features of xgb_v1 and xgb_v2, kept as they were scored: everything except the
