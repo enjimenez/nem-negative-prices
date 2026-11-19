@@ -77,10 +77,25 @@ data: requirements
 backtest:
 	NOTE="$(NOTE)" $(PYTHON_INTERPRETER) negprice/backtest.py $(if $(FORCE),--force,)
 
-## Rebuild everything: data, features, backtest
+## Zero-shot Chronos-2 forecasts (approx. 40 min on CPU)
+.PHONY: chronos
+chronos:
+	$(PYTHON_INTERPRETER) -m negprice.chronos_fm
+
+## Battery arbitrage value from the backtest predictions
+.PHONY: battery
+battery:
+	$(PYTHON_INTERPRETER) -m negprice.battery
+
+## Export the tables behind the Power BI dashboard
+.PHONY: dashboard
+dashboard:
+	$(PYTHON_INTERPRETER) -m negprice.dashboard
+
+## Rebuild everything: data, Chronos, backtest, battery, dashboard (approx. 3 h)
 .PHONY: all
 all: NOTE = full rebuild (make all)
-all: data backtest
+all: data chronos backtest battery dashboard
 
 #################################################################################
 # Self Documenting Commands                                                     #

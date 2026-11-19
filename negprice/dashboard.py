@@ -9,6 +9,7 @@ metric per region x hour block x season x test year, each with "All" (matrix).
 """
 
 from itertools import product
+import os
 import shutil
 from pathlib import Path
 
@@ -30,7 +31,8 @@ MODEL_LABELS = {
 }
 OTHER_MODELS = [m for m in MODEL_LABELS if m != REFERENCE]
 
-WIN_DIR = Path("/media/esteban/24628C12628BE6C0/Users/esteb/negprice_dashboard")
+# Optional: also copy the exports to this folder (e.g. a Windows partition for Power BI)
+WIN_DIR = Path(os.environ["DASHBOARD_COPY_DIR"]) if os.environ.get("DASHBOARD_COPY_DIR") else None
 
 OUT_DIR = PROCESSED_DATA_DIR / "dashboard"
 SEASON = {12: "Summer", 1: "Summer", 2: "Summer",
@@ -221,7 +223,8 @@ def write_parquet(df: pd.DataFrame, path: Path) -> None:
 if __name__ == "__main__":
     preds = load_scored()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    WIN_DIR.mkdir(parents=True, exist_ok=True)
+    if WIN_DIR: 
+        WIN_DIR.mkdir(parents=True, exist_ok=True)
 
     heat = build(preds)
     fva = forecast_vs_actual(preds)
@@ -240,8 +243,10 @@ if __name__ == "__main__":
             write_parquet(df, path)
         else:
             df.to_csv(path, index=False)
-        shutil.copy2(path, WIN_DIR / name)
+        if WIN_DIR:
+            shutil.copy2(path, WIN_DIR / name)
         print(f"{len(df):>9,} rows -> {path.name}")
     check_table(heat).to_csv(OUT_DIR / "heatmap_check.csv", index=False)
     fva_check(fva).to_csv(OUT_DIR / "forecast_vs_actual_check.csv", index=False)
-    print(f"Copied to {WIN_DIR}")
+    if WIN_DIR:
+        print(f"Copied to {WIN_DIR}")
